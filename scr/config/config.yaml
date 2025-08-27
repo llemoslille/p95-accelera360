@@ -1,0 +1,10 @@
+project-id: lille-422512
+project-name: lille 
+cloud: gcp
+credentials-path: C:\Repositorio\Python\p65-tensor-auvo\src\utils\lille-422512-a12a0a3c757b.json
+bucket-projeto: p65tensor
+bucket-raw: raw
+bucket-silver: silver
+bucket-gold: gold
+bucket-processed: processed
+bucket-dw: dw
