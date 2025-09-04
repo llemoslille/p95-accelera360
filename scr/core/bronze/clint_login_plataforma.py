@@ -24,6 +24,8 @@ with open(variaveis_path, 'r') as f:
 # Importações do Selenium (após configurar o path)
 
 #### INÍCIO DO FLUXO DE WEBB SCRAPPING ####
+
+
 def main():
     print("🚀 Iniciando RPA para acessar a plataforma Clint...")
 
@@ -155,7 +157,6 @@ def main():
                 else:
                     print("❌ Campos de código de verificação não encontrados.")
                     input("Pressione ENTER para fechar o navegador...")
-                    driver.quit()
                     return
 
                 #### FIM DO FLUXO DE VERIFICAÇÃO DE CÓDIGO ####
@@ -180,8 +181,14 @@ def main():
 
                     print("🎉 Login no Clint finalizado com sucesso!")
                     time.sleep(3)
+
+                    # Importar clint_urls para web scraping
+                    from variaveis import clint_urls
+                    print(f"🔗 URLs para coleta: {len(clint_urls)} encontradas")
+
                 else:
                     print(f"❌ Token inválido: {token_value}")
+                    return
 
             except ImportError as e:
                 print(f"⚠️ Erro de importação: {e}")
@@ -211,7 +218,8 @@ def main():
                         bronze_data_path, f"{nome_arquivo}.csv")
                     if os.path.exists(arquivo_existente):
                         os.remove(arquivo_existente)
-                        print(f"Arquivo existente removido: {arquivo_existente}")
+                        print(
+                            f"Arquivo existente removido: {arquivo_existente}")
 
                 for i, url in enumerate(clint_urls, 1):
                     nome_arquivo = nomes_arquivos[i-1]
@@ -222,7 +230,8 @@ def main():
                     print(f"{'='*50}")
                     driver.get(url)
                     time.sleep(5)
-                    wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+                    wait.until(EC.presence_of_element_located(
+                        (By.TAG_NAME, "body")))
                     print("Página carregada completamente.")
                     current_url = driver.current_url
                     print(f"URL atual: {current_url}")
@@ -244,7 +253,8 @@ def main():
                         status_list = ["Ganho", "Perdido"]
                         for status in status_list:
                             try:
-                                print(f"Procurando checkbox para status: {status}")
+                                print(
+                                    f"Procurando checkbox para status: {status}")
                                 time.sleep(1)  # Pausa entre tentativas
 
                                 # Tentar clicar diretamente no checkbox usando JavaScript
@@ -261,7 +271,8 @@ def main():
                                         print(
                                             f"Status '{status}' marcado via JavaScript.")
                                     else:
-                                        print(f"Status '{status}' já estava marcado.")
+                                        print(
+                                            f"Status '{status}' já estava marcado.")
                                 except Exception as js_error:
                                     print(
                                         f"Tentativa JavaScript falhou para '{status}': {js_error}")
@@ -315,95 +326,108 @@ def main():
                         # --- Fim do tratamento do pop-up ---
                         time.sleep(5)
                     except Exception as e:
-                        print(f"❌ Não foi possível clicar no botão de download: {e}")
+                        print(
+                            f"❌ Não foi possível clicar no botão de download: {e}")
                     #### FIM DO FLUXO DE DOWNLOAD ####
 
                     #### INÍCIO DO FLUXO DE PROCESSAMENTO DIRETO NO BUCKET ####
                     try:
-                        print("🚀 Iniciando upload direto para o bucket Google Cloud Storage...")
-                        
+                        print(
+                            "🚀 Iniciando upload direto para o bucket Google Cloud Storage...")
+
                         # Importar biblioteca do Google Cloud Storage
                         from google.cloud import storage
                         from google.oauth2 import service_account
                         import io
-                        
+
                         # Carregar configuração para obter credenciais
                         config = carregar_configuracao()
                         if not config:
                             print("❌ Falha ao carregar configuração")
                             continue
-                            
+
                         # Obter credenciais
                         credentials = service_account.Credentials.from_service_account_file(
                             config['credentials-path'],
-                            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                            scopes=[
+                                "https://www.googleapis.com/auth/cloud-platform"]
                         )
-                        
+
                         # Criar cliente do Storage
-                        storage_client = storage.Client(credentials=credentials)
+                        storage_client = storage.Client(
+                            credentials=credentials)
                         bucket_name = "p95-accelera360"
                         bucket = storage_client.bucket(bucket_name)
-                        
+
                         # Nome do arquivo no bucket
                         nome_arquivo_bucket = f"bronze/leads-forms-accelera/{nome_arquivo}.csv"
-                        
-                        print(f"📁 Preparando upload para: gs://{bucket_name}/{nome_arquivo_bucket}")
-                        
+
+                        print(
+                            f"📁 Preparando upload para: gs://{bucket_name}/{nome_arquivo_bucket}")
+
                         # Aguardar um pouco para garantir que o download foi processado
                         time.sleep(3)
-                        
+
                         # Verificar se há arquivos CSV na pasta downloads (temporário)
                         download_folder = os.path.join(os.path.dirname(
                             os.path.abspath(__file__)), "downloads")
-                        
+
                         if not os.path.exists(download_folder):
                             os.makedirs(download_folder, exist_ok=True)
-                            
-                        csv_files = [f for f in os.listdir(download_folder) if f.endswith(".csv")]
-                        
+
+                        csv_files = [f for f in os.listdir(
+                            download_folder) if f.endswith(".csv")]
+
                         if csv_files:
                             # Pegar o arquivo mais recente
                             csv_files.sort(key=lambda x: os.path.getmtime(
                                 os.path.join(download_folder, x)), reverse=True)
-                            csv_path = os.path.join(download_folder, csv_files[0])
-                            
+                            csv_path = os.path.join(
+                                download_folder, csv_files[0])
+
                             # Ler o arquivo CSV
                             df = pd.read_csv(csv_path)
-                            print(f"📊 DataFrame carregado com {len(df)} linhas")
-                            
+                            print(
+                                f"📊 DataFrame carregado com {len(df)} linhas")
+
                             # Converter DataFrame para CSV em memória
                             csv_buffer = io.StringIO()
                             df.to_csv(csv_buffer, index=False)
                             csv_content = csv_buffer.getvalue()
-                            
+
                             # Fazer upload direto para o bucket
                             blob = bucket.blob(nome_arquivo_bucket)
-                            blob.upload_from_string(csv_content, content_type='text/csv')
-                            
-                            print(f"✅ Arquivo enviado com sucesso para: gs://{bucket_name}/{nome_arquivo_bucket}")
-                            print(f"📊 Tamanho do arquivo: {len(csv_content)} bytes")
+                            blob.upload_from_string(
+                                csv_content, content_type='text/csv')
+
+                            print(
+                                f"✅ Arquivo enviado com sucesso para: gs://{bucket_name}/{nome_arquivo_bucket}")
+                            print(
+                                f"📊 Tamanho do arquivo: {len(csv_content)} bytes")
                             print(f"📈 Linhas processadas: {len(df)}")
-                            
+
                             # Remover arquivo temporário local
                             os.remove(csv_path)
                             print("🗑️ Arquivo temporário local removido")
-                            
+
                         else:
                             print("❌ Nenhum arquivo CSV encontrado para upload")
-                            
+
                     except Exception as e:
-                        print(f"❌ Erro ao fazer upload para o bucket (URL {i}): {e}")
+                        print(
+                            f"❌ Erro ao fazer upload para o bucket (URL {i}): {e}")
                         print("🔄 Tentando método alternativo...")
-                        
+
                         try:
                             # Método alternativo: verificar se há dados na página
-                            print("🔍 Verificando se há dados na página para captura direta...")
-                            
+                            print(
+                                "🔍 Verificando se há dados na página para captura direta...")
+
                             # Aqui você pode implementar captura direta dos dados da página
                             # Por exemplo, capturar tabelas ou elementos específicos
-                            
+
                             print("⚠️ Método alternativo não implementado ainda")
-                            
+
                         except Exception as e2:
                             print(f"❌ Método alternativo também falhou: {e2}")
                     #### FIM DO FLUXO DE PROCESSAMENTO DIRETO NO BUCKET ####
