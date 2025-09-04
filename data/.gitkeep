@@ -1,0 +1,5 @@
+# Este arquivo mantém a estrutura da pasta data no Git
+# A pasta data contém os arquivos gerados pelo pipeline ETL:
+# - Bronze: Dados brutos extraídos via RPA
+# - Silver: Dados limpos e padronizados
+# - Gold: Modelo dimensional (Data Warehouse)

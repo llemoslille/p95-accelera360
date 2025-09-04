@@ -49,28 +49,46 @@ def criar_diretorios():
 
 
 def limpar_valores_nulos(df, nome_dataframe=""):
-    """Substitui apenas string 'None' por NaN no DataFrame"""
+    """
+    Substitui todos os valores nan/NaN/None por null (None) no DataFrame
+    """
     logger.info(f"Limpando valores nulos em {nome_dataframe}...")
 
     # Conta valores nulos antes da limpeza
     valores_nulos_antes = df.isnull().sum().sum()
-    valores_none_string_antes = (df == 'None').sum().sum()
 
-    # Substitui apenas string 'None' por NaN
-    df = df.replace('None', pd.NA)
+    # Conta strings problemáticas antes
+    strings_problematicas_antes = 0
+    colunas_texto = df.select_dtypes(include=['object', 'string']).columns
+
+    for col in colunas_texto:
+        col_str = df[col].astype(str)
+        strings_problematicas_antes += (
+            (col_str == 'None') |
+            (col_str == 'nan') |
+            (col_str == 'NaN') |
+            (col_str == 'null') |
+            (col_str == 'NULL')
+        ).sum()
+
+    # Substitui todos os valores problemáticos por None
+    valores_problematicos = ['None', 'nan', 'NaN', 'null', 'NULL']
+    df = df.replace(valores_problematicos, None)
 
     # Conta valores nulos depois da limpeza
     valores_nulos_depois = df.isnull().sum().sum()
 
     logger.info(f"Valores nulos antes: {valores_nulos_antes}")
-    logger.info(f"Strings 'None' antes: {valores_none_string_antes}")
+    logger.info(f"Strings problemáticas antes: {strings_problematicas_antes}")
     logger.info(f"Valores nulos depois: {valores_nulos_depois}")
 
     return df
 
 
 def padronizar_dados(df, nome_dataframe=""):
-    """Padroniza dados das colunas: remove espaços e deixa maiúsculas"""
+    """
+    Padroniza dados das colunas: remove espaços, deixa maiúsculas e trata valores nan
+    """
     logger.info(f"Padronizando dados em {nome_dataframe}...")
 
     # Conta registros antes da padronização
@@ -83,11 +101,17 @@ def padronizar_dados(df, nome_dataframe=""):
 
     # Para cada coluna de texto
     for col in colunas_texto:
-        # Remove espaços no início e fim, converte para maiúsculas
-        df[col] = df[col].astype(str).str.strip().str.upper()
+        # Primeiro, trata valores None/nan antes da conversão para string
+        df[col] = df[col].replace(['nan', 'NaN', 'null', 'NULL'], None)
 
-        # Substitui valores 'NAN' (string) por NaN
-        df[col] = df[col].replace('NAN', pd.NA)
+        # Remove espaços no início e fim, converte para maiúsculas (apenas valores não-nulos)
+        mask_not_null = df[col].notna()
+        if mask_not_null.any():
+            df.loc[mask_not_null, col] = df.loc[mask_not_null,
+                                                col].astype(str).str.strip().str.upper()
+
+        # Substitui valores 'NAN' (string) que podem ter sido criados por None
+        df[col] = df[col].replace(['NAN', 'NONE'], None)
 
     # Conta registros depois da padronização
     registros_depois = len(df)
@@ -211,33 +235,47 @@ def main():
         dim_cliente = df[colunas_dim_cliente].copy()
 
         # Trata registros com valores nulos de forma especial
-        # Primeiro, separa registros com valores nulos
-        registros_nulos = dim_cliente.isnull().any(axis=1)
-        dim_cliente_nulos = dim_cliente[registros_nulos].copy()
-        dim_cliente_validos = dim_cliente[~registros_nulos].copy()
+        # Primeiro, separa registros completamente válidos dos que têm algum nulo
+        registros_completamente_validos = ~dim_cliente.isnull().any(axis=1)
+        dim_cliente_validos = dim_cliente[registros_completamente_validos].copy(
+        )
+        dim_cliente_com_nulos = dim_cliente[~registros_completamente_validos].copy(
+        )
 
-        logger.info(f"Registros com valores nulos: {len(dim_cliente_nulos)}")
-        logger.info(f"Registros válidos: {len(dim_cliente_validos)}")
+        logger.info(
+            f"Registros completamente válidos: {len(dim_cliente_validos)}")
+        logger.info(
+            f"Registros com algum valor nulo: {len(dim_cliente_com_nulos)}")
 
-        # Remove duplicados apenas dos registros válidos
+        # Remove duplicados dos registros válidos
         dim_cliente_validos = dim_cliente_validos.drop_duplicates()
         logger.info(f"Registros válidos únicos: {len(dim_cliente_validos)}")
 
-        # Para registros nulos, cria um único registro "DESCONHECIDO" para cada tipo de nulo
-        if len(dim_cliente_nulos) > 0:
-            # Cria combinações únicas de valores nulos
-            dim_cliente_nulos_unicos = dim_cliente_nulos.drop_duplicates()
+        # Para registros com nulos, substitui valores nulos por DESCONHECIDO e remove duplicados
+        if len(dim_cliente_com_nulos) > 0:
             logger.info(
-                f"Combinações únicas de registros nulos: {len(dim_cliente_nulos_unicos)}")
+                f"Processando {len(dim_cliente_com_nulos)} registros com valores nulos")
 
-            # Substitui valores nulos por valores padrão identificáveis
-            for col in dim_cliente_nulos_unicos.columns:
-                dim_cliente_nulos_unicos[col] = dim_cliente_nulos_unicos[col].fillna(
-                    f'DESCONHECIDO_{col.upper()}')
+            # Substitui valores nulos por valores padrão (mesmos usados no merge do fato)
+            dim_cliente_com_nulos['nome'] = dim_cliente_com_nulos['nome'].fillna(
+                'DESCONHECIDO_NOME')
+            dim_cliente_com_nulos['email'] = dim_cliente_com_nulos['email'].fillna(
+                'DESCONHECIDO_EMAIL')
+            dim_cliente_com_nulos['ddi'] = dim_cliente_com_nulos['ddi'].fillna(
+                'DESCONHECIDO_DDI')
+            dim_cliente_com_nulos['fone'] = dim_cliente_com_nulos['fone'].fillna(
+                'DESCONHECIDO_FONE')
+            dim_cliente_com_nulos['fone_completo'] = dim_cliente_com_nulos['fone_completo'].fillna(
+                'DESCONHECIDO_FONE_COMPLETO')
 
-            # Combina registros válidos e nulos tratados
+            # Remove duplicados dos registros com nulos tratados
+            dim_cliente_com_nulos = dim_cliente_com_nulos.drop_duplicates()
+            logger.info(
+                f"Registros com nulos únicos após tratamento: {len(dim_cliente_com_nulos)}")
+
+            # Combina registros válidos e registros com nulos tratados
             dim_cliente = pd.concat(
-                [dim_cliente_validos, dim_cliente_nulos_unicos], ignore_index=True)
+                [dim_cliente_validos, dim_cliente_com_nulos], ignore_index=True)
         else:
             dim_cliente = dim_cliente_validos
 
@@ -320,20 +358,19 @@ def main():
         logger.info(
             f"Vendedores válidos únicos: {len(dim_vendedores_validos)}")
 
-        # Para registros nulos, cria registros "DESCONHECIDO"
+        # Para registros nulos, cria APENAS UM registro "DESCONHECIDO"
         if len(dim_vendedores_nulos) > 0:
-            dim_vendedores_nulos_unicos = dim_vendedores_nulos.drop_duplicates()
             logger.info(
-                f"Combinações únicas de vendedores nulos: {len(dim_vendedores_nulos_unicos)}")
+                f"Criando um único registro DESCONHECIDO para {len(dim_vendedores_nulos)} vendedores nulos")
 
-            # Substitui valores nulos por valores padrão identificáveis
-            for col in dim_vendedores_nulos_unicos.columns:
-                dim_vendedores_nulos_unicos[col] = dim_vendedores_nulos_unicos[col].fillna(
-                    f'DESCONHECIDO_{col.upper()}')
+            # Cria apenas UM registro para todos os valores nulos
+            registro_vendedor_desconhecido = pd.DataFrame({
+                col: [f'DESCONHECIDO_{col.upper()}'] for col in colunas_dim_vendedores
+            })
 
-            # Combina registros válidos e nulos tratados
+            # Combina registros válidos e o único registro nulo
             dim_vendedores = pd.concat(
-                [dim_vendedores_validos, dim_vendedores_nulos_unicos], ignore_index=True)
+                [dim_vendedores_validos, registro_vendedor_desconhecido], ignore_index=True)
         else:
             dim_vendedores = dim_vendedores_validos
 
@@ -536,48 +573,40 @@ def main():
         logger.info("Padronizando dados do fato para merge...")
 
         # Criar cópias padronizadas das colunas para merge
+        def padronizar_coluna_para_merge(coluna, valor_default):
+            """Padroniza uma coluna tratando todos os valores nan/None adequadamente"""
+            # Primeiro substitui todos os valores problemáticos por None
+            coluna_limpa = coluna.replace(
+                ['nan', 'NaN', 'null', 'NULL', 'None'], None)
+            # Preenche None com valor padrão
+            coluna_limpa = coluna_limpa.fillna(valor_default)
+            # Padroniza apenas valores não-nulos
+            mask_not_null = coluna_limpa.notna()
+            if mask_not_null.any():
+                coluna_limpa.loc[mask_not_null] = coluna_limpa.loc[mask_not_null].astype(
+                    str).str.strip().str.upper()
+            # Substitui valores 'NAN' que podem ter sido criados
+            coluna_limpa = coluna_limpa.replace(['NAN', 'NONE'], valor_default)
+            return coluna_limpa
+
         if 'nome' in fato_clint_digital.columns:
-            fato_clint_digital['nome_padronizado'] = fato_clint_digital['nome'].astype(
-                str).str.strip().str.upper()
-            # Substitui 'NAN' por valor padrão que corresponde ao da dimensão
-            fato_clint_digital['nome_padronizado'] = fato_clint_digital['nome_padronizado'].replace(
-                'NAN', 'DESCONHECIDO_NOME')
+            fato_clint_digital['nome_padronizado'] = padronizar_coluna_para_merge(
+                fato_clint_digital['nome'], 'DESCONHECIDO_NOME')
         if 'email' in fato_clint_digital.columns:
-            fato_clint_digital['email_padronizado'] = fato_clint_digital['email'].astype(
-                str).str.strip().str.upper()
-            # Substitui 'NAN' por valor padrão que corresponde ao da dimensão
-            fato_clint_digital['email_padronizado'] = fato_clint_digital['email_padronizado'].replace(
-                'NAN', 'DESCONHECIDO_EMAIL')
+            fato_clint_digital['email_padronizado'] = padronizar_coluna_para_merge(
+                fato_clint_digital['email'], 'DESCONHECIDO_EMAIL')
         if 'usuario_email' in fato_clint_digital.columns:
-            # Tratar valores 'nan' (string) como nulos primeiro
-            fato_clint_digital['usuario_email_padronizado'] = fato_clint_digital['usuario_email'].replace(
-                'nan', None)
-            fato_clint_digital['usuario_email_padronizado'] = fato_clint_digital['usuario_email_padronizado'].fillna(
-                'DESCONHECIDO_USUARIO_EMAIL')
-            fato_clint_digital['usuario_email_padronizado'] = fato_clint_digital['usuario_email_padronizado'].astype(
-                str).str.strip().str.upper()
-            fato_clint_digital['usuario_email_padronizado'] = fato_clint_digital['usuario_email_padronizado'].replace(
-                'NAN', 'DESCONHECIDO_USUARIO_EMAIL')
+            fato_clint_digital['usuario_email_padronizado'] = padronizar_coluna_para_merge(
+                fato_clint_digital['usuario_email'], 'DESCONHECIDO_USUARIO_EMAIL')
         if 'usuario_nome' in fato_clint_digital.columns:
-            # Tratar valores 'nan' (string) como nulos primeiro
-            fato_clint_digital['usuario_nome_padronizado'] = fato_clint_digital['usuario_nome'].replace(
-                'nan', None)
-            fato_clint_digital['usuario_nome_padronizado'] = fato_clint_digital['usuario_nome_padronizado'].fillna(
-                'DESCONHECIDO_USUARIO_NOME')
-            fato_clint_digital['usuario_nome_padronizado'] = fato_clint_digital['usuario_nome_padronizado'].astype(
-                str).str.strip().str.upper()
-            fato_clint_digital['usuario_nome_padronizado'] = fato_clint_digital['usuario_nome_padronizado'].replace(
-                'NAN', 'DESCONHECIDO_USUARIO_NOME')
+            fato_clint_digital['usuario_nome_padronizado'] = padronizar_coluna_para_merge(
+                fato_clint_digital['usuario_nome'], 'DESCONHECIDO_USUARIO_NOME')
         if 'de_origem' in fato_clint_digital.columns:
-            fato_clint_digital['de_origem_padronizado'] = fato_clint_digital['de_origem'].astype(
-                str).str.strip().str.upper()
-            fato_clint_digital['de_origem_padronizado'] = fato_clint_digital['de_origem_padronizado'].replace(
-                'NAN', 'DESCONHECIDO_DE_ORIGEM')
+            fato_clint_digital['de_origem_padronizado'] = padronizar_coluna_para_merge(
+                fato_clint_digital['de_origem'], 'DESCONHECIDO_DE_ORIGEM')
         if 'estagio' in fato_clint_digital.columns:
-            fato_clint_digital['estagio_padronizado'] = fato_clint_digital['estagio'].astype(
-                str).str.strip().str.upper()
-            fato_clint_digital['estagio_padronizado'] = fato_clint_digital['estagio_padronizado'].replace(
-                'NAN', 'DESCONHECIDO_ESTAGIO')
+            fato_clint_digital['estagio_padronizado'] = padronizar_coluna_para_merge(
+                fato_clint_digital['estagio'], 'DESCONHECIDO_ESTAGIO')
 
         # Merge com dim_cliente (usando dados padronizados)
         fato_clint_digital = pd.merge(

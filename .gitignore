@@ -42,3 +42,7 @@ wheels/
 # Arquivos temporários
 *.tmp
 *.temp
+
+# Dados do pipeline ETL
+data/
+!data/.gitkeep
