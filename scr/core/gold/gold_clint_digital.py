@@ -31,8 +31,8 @@ def setup_logger():
 logger = setup_logger()
 
 # Configurações dos arquivos
-ARQUIVO_SILVER = 'data/silver/leads-forms-accelera.parquet'
-ARQUIVO_GOLD = 'data/gold/leads-forms-accelera.parquet'
+ARQUIVO_SILVER = 'gs://p95-accelera360/silver/leads-forms-accelera.parquet'
+ARQUIVO_GOLD = 'gs://p95-accelera360/gold/leads-forms-accelera.parquet'
 
 
 def criar_diretorios():
@@ -207,7 +207,11 @@ def main():
         # Lê o arquivo Parquet
         logger.info("Lendo arquivo Silver...")
         start_time = time.time()
-        df = pd.read_parquet(ARQUIVO_SILVER)
+        df = pd.read_parquet(
+            ARQUIVO_SILVER,
+            storage_options={
+                'token': r'scr\\config\\lille-422512-a12a0a3c757b.json'}
+        )
         elapsed_time = time.time() - start_time
         logger.info(f"Arquivo Silver lido em {elapsed_time:.2f} segundos")
 
@@ -308,14 +312,19 @@ def main():
         # Salva o dataframe dim_cliente em formato Parquet
         logger.info("Salvando dim_cliente...")
         start_time = time.time()
-        arquivo_dim_cliente = 'data/gold/dim_cliente.parquet'
-        dim_cliente.to_parquet(arquivo_dim_cliente, index=False)
+        arquivo_dim_cliente = 'gs://p95-accelera360/gold/dim_cliente.parquet'
+        dim_cliente.to_parquet(
+            arquivo_dim_cliente,
+            index=False,
+            storage_options={
+                'token': r'scr\\config\\lille-422512-a12a0a3c757b.json'}
+        )
         elapsed_time = time.time() - start_time
         logger.info(
             f"DataFrame dim_cliente salvo em {elapsed_time:.2f} segundos: {arquivo_dim_cliente}")
 
         # Faz upload do arquivo dim_cliente para GCS
-        upload_para_gcs_gold(arquivo_dim_cliente, 'dim_cliente.parquet')
+        # Upload não é mais necessário: já gravamos direto no GCS
 
         # Cria o dataframe dim_vendedores
         logger.info("Criando dim_vendedores...")
@@ -327,27 +336,42 @@ def main():
         # Verifica se as colunas existem no DataFrame
         colunas_vendedores_existentes = [
             col for col in colunas_dim_vendedores if col in df.columns]
-        if len(colunas_vendedores_existentes) != len(colunas_dim_vendedores):
+        if len(colunas_vendedores_existentes) == 0:
             logger.warning(
-                f"Algumas colunas de vendedor não foram encontradas. Colunas existentes: {colunas_vendedores_existentes}")
+                "Nenhuma coluna de vendedor encontrada no dataset Silver. Criando dimensão vazia.")
+            dim_vendedores = pd.DataFrame(columns=[
+                'pk_vendedor', 'vendedor_email', 'vendedor_nome', 'vendedor_fone', 'vendedor_link'
+            ])
+        else:
+            if len(colunas_vendedores_existentes) != len(colunas_dim_vendedores):
+                logger.warning(
+                    f"Algumas colunas de vendedor não foram encontradas. Colunas existentes: {colunas_vendedores_existentes}")
             colunas_dim_vendedores = colunas_vendedores_existentes
 
-        # Cria o dataframe dim_vendedores apenas com as colunas necessárias
-        dim_vendedores = df[colunas_dim_vendedores].copy()
+            # Cria o dataframe dim_vendedores apenas com as colunas necessárias
+            dim_vendedores = df[colunas_dim_vendedores].copy()
 
-        # Tratar valores 'nan' (string) como nulos nas colunas essenciais
-        colunas_essenciais = ['usuario_email', 'usuario_nome']
-        for col in colunas_essenciais:
-            if col in dim_vendedores.columns:
+            # Tratar valores 'nan' (string) como nulos nas colunas essenciais (se existirem)
+            colunas_essenciais = [c for c in [
+                'usuario_email', 'usuario_nome'] if c in dim_vendedores.columns]
+            for col in colunas_essenciais:
                 dim_vendedores[col] = dim_vendedores[col].replace('nan', None)
 
-        # Trata registros com valores nulos de forma especial
-        # Considera apenas colunas essenciais para determinar se é nulo (usuario_email e usuario_nome)
-        registros_nulos_vendedor = dim_vendedores[colunas_essenciais].isnull().all(
-            axis=1)  # TODOS nulos nas essenciais
-        dim_vendedores_nulos = dim_vendedores[registros_nulos_vendedor].copy()
-        dim_vendedores_validos = dim_vendedores[~registros_nulos_vendedor].copy(
-        )
+            # Trata registros com valores nulos de forma especial
+            if len(colunas_essenciais) == 2:
+                # Considera apenas colunas essenciais para determinar se é nulo (usuario_email e usuario_nome)
+                registros_nulos_vendedor = dim_vendedores[colunas_essenciais].isnull().all(
+                    axis=1)
+                dim_vendedores_nulos = dim_vendedores[registros_nulos_vendedor].copy(
+                )
+                dim_vendedores_validos = dim_vendedores[~registros_nulos_vendedor].copy(
+                )
+            else:
+                logger.warning(
+                    "Colunas essenciais de vendedor ausentes. Pulando tratamento específico de nulos.")
+                dim_vendedores_nulos = pd.DataFrame(
+                    columns=dim_vendedores.columns)
+                dim_vendedores_validos = dim_vendedores.copy()
 
         logger.info(
             f"Vendedores com valores nulos: {len(dim_vendedores_nulos)}")
@@ -377,28 +401,31 @@ def main():
         logger.info(
             f"Total de registros únicos em dim_vendedores: {len(dim_vendedores)}")
 
-        # Gera uma chave primária (PK) para cada linha
-        dim_vendedores['pk_vendedor'] = range(1, len(dim_vendedores) + 1)
+        # Se a dimensão não está vazia, continuar padronização e chaves
+        if len(dim_vendedores) > 0:
+            # Gera uma chave primária (PK) para cada linha
+            dim_vendedores['pk_vendedor'] = range(1, len(dim_vendedores) + 1)
 
-        # Renomeia as colunas de usuario para vendedor
-        mapeamento_colunas = {
-            'usuario_email': 'vendedor_email',
-            'usuario_nome': 'vendedor_nome',
-            'usuario_fone': 'vendedor_fone',
-            'usuario_link': 'vendedor_link'
-        }
-        dim_vendedores = dim_vendedores.rename(columns=mapeamento_colunas)
+            # Renomeia as colunas de usuario para vendedor
+            mapeamento_colunas = {
+                'usuario_email': 'vendedor_email',
+                'usuario_nome': 'vendedor_nome',
+                'usuario_fone': 'vendedor_fone',
+                'usuario_link': 'vendedor_link'
+            }
+            dim_vendedores = dim_vendedores.rename(columns=mapeamento_colunas)
 
-        # Reorganiza as colunas para que a PK seja a primeira
-        colunas_finais_vendedores = [
-            'pk_vendedor'] + [mapeamento_colunas[col] for col in colunas_dim_vendedores]
-        dim_vendedores = dim_vendedores[colunas_finais_vendedores]
+            # Reorganiza as colunas para que a PK seja a primeira (apenas as que existirem)
+            colunas_finais_vendedores = ['pk_vendedor'] + [
+                mapeamento_colunas[col] for col in colunas_dim_vendedores if col in mapeamento_colunas]
+            dim_vendedores = dim_vendedores[colunas_finais_vendedores]
 
-        # Limpa valores nulos no dim_vendedores
-        dim_vendedores = limpar_valores_nulos(dim_vendedores, "dim_vendedores")
+            # Limpa valores nulos no dim_vendedores
+            dim_vendedores = limpar_valores_nulos(
+                dim_vendedores, "dim_vendedores")
 
-        # Padroniza dados no dim_vendedores
-        dim_vendedores = padronizar_dados(dim_vendedores, "dim_vendedores")
+            # Padroniza dados no dim_vendedores
+            dim_vendedores = padronizar_dados(dim_vendedores, "dim_vendedores")
 
         elapsed_time = time.time() - start_time
         logger.info(f"Dim_vendedores criado em {elapsed_time:.2f} segundos")
@@ -413,14 +440,19 @@ def main():
         # Salva o dataframe dim_vendedores em formato Parquet
         logger.info("Salvando dim_vendedores...")
         start_time = time.time()
-        arquivo_dim_vendedores = 'data/gold/dim_vendedores.parquet'
-        dim_vendedores.to_parquet(arquivo_dim_vendedores, index=False)
+        arquivo_dim_vendedores = 'gs://p95-accelera360/gold/dim_vendedores.parquet'
+        dim_vendedores.to_parquet(
+            arquivo_dim_vendedores,
+            index=False,
+            storage_options={
+                'token': r'scr\\config\\lille-422512-a12a0a3c757b.json'}
+        )
         elapsed_time = time.time() - start_time
         logger.info(
             f"DataFrame dim_vendedores salvo em {elapsed_time:.2f} segundos: {arquivo_dim_vendedores}")
 
         # Faz upload do arquivo dim_vendedores para GCS
-        upload_para_gcs_gold(arquivo_dim_vendedores, 'dim_vendedores.parquet')
+        # Upload não é mais necessário: já gravamos direto no GCS
 
         # Cria o dataframe dim_pipeline
         logger.info("Criando dim_pipeline...")
@@ -473,14 +505,19 @@ def main():
         # Salva o dataframe dim_pipeline em formato Parquet
         logger.info("Salvando dim_pipeline...")
         start_time = time.time()
-        arquivo_dim_pipeline = 'data/gold/dim_pipeline.parquet'
-        dim_pipeline.to_parquet(arquivo_dim_pipeline, index=False)
+        arquivo_dim_pipeline = 'gs://p95-accelera360/gold/dim_pipeline.parquet'
+        dim_pipeline.to_parquet(
+            arquivo_dim_pipeline,
+            index=False,
+            storage_options={
+                'token': r'scr\\config\\lille-422512-a12a0a3c757b.json'}
+        )
         elapsed_time = time.time() - start_time
         logger.info(
             f"DataFrame dim_pipeline salvo em {elapsed_time:.2f} segundos: {arquivo_dim_pipeline}")
 
         # Faz upload do arquivo dim_pipeline para GCS
-        upload_para_gcs_gold(arquivo_dim_pipeline, 'dim_pipeline.parquet')
+        # Upload não é mais necessário: já gravamos direto no GCS
 
         # Cria o dataframe dim_estagio
         logger.info("Criando dim_estagio...")
@@ -532,14 +569,19 @@ def main():
         # Salva o dataframe dim_estagio em formato Parquet
         logger.info("Salvando dim_estagio...")
         start_time = time.time()
-        arquivo_dim_estagio = 'data/gold/dim_estagio.parquet'
-        dim_estagio.to_parquet(arquivo_dim_estagio, index=False)
+        arquivo_dim_estagio = 'gs://p95-accelera360/gold/dim_estagio.parquet'
+        dim_estagio.to_parquet(
+            arquivo_dim_estagio,
+            index=False,
+            storage_options={
+                'token': r'scr\\config\\lille-422512-a12a0a3c757b.json'}
+        )
         elapsed_time = time.time() - start_time
         logger.info(
             f"DataFrame dim_estagio salvo em {elapsed_time:.2f} segundos: {arquivo_dim_estagio}")
 
         # Faz upload do arquivo dim_estagio para GCS
-        upload_para_gcs_gold(arquivo_dim_estagio, 'dim_estagio.parquet')
+        # Upload não é mais necessário: já gravamos direto no GCS
 
         # ========================================
         # CRIAÇÃO DA TABELA FATO (APÓS TODAS AS DIMENSÕES)
@@ -726,14 +768,19 @@ def main():
         # Salva o dataframe fato_clint_digital em formato Parquet
         logger.info("Salvando fato_clint_digital...")
         start_time = time.time()
-        arquivo_fato = 'data/gold/fato_clint_digital.parquet'
-        fato_clint_digital.to_parquet(arquivo_fato, index=False)
+        arquivo_fato = 'gs://p95-accelera360/gold/fato_clint_digital.parquet'
+        fato_clint_digital.to_parquet(
+            arquivo_fato,
+            index=False,
+            storage_options={
+                'token': r'scr\\config\\lille-422512-a12a0a3c757b.json'}
+        )
         elapsed_time = time.time() - start_time
         logger.info(
             f"DataFrame fato_clint_digital salvo em {elapsed_time:.2f} segundos: {arquivo_fato}")
 
         # Faz upload do arquivo fato_clint_digital para GCS
-        upload_para_gcs_gold(arquivo_fato, 'fato_clint_digital.parquet')
+        # Upload não é mais necessário: já gravamos direto no GCS
 
         # Tempo total de processamento
         total_elapsed_time = time.time() - start_time_total

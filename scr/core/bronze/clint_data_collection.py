@@ -624,6 +624,15 @@ def coletar_dados_url(driver, url, nome_arquivo, index, total_urls):
         if fazer_download_csv_nativo(driver, wait, nome_arquivo):
             print(
                 f"✅ Download nativo concluído com sucesso para a URL {index}!")
+            # Enviar para GCS após salvar localmente
+            try:
+                print("📤 Enviando arquivo baixado para o GCS...")
+                if fazer_upload_bucket(driver, nome_arquivo):
+                    print("✅ Upload para GCS concluído com sucesso!")
+                else:
+                    print("⚠️ Upload para GCS não foi concluído. Verifique logs.")
+            except Exception as e:
+                print(f"⚠️ Erro durante upload para GCS: {e}")
             return True
         else:
             print(

@@ -46,3 +46,6 @@ wheels/
 # Dados do pipeline ETL
 data/
 !data/.gitkeep
+
+# Pasta de arquivos legados
+lixeira/

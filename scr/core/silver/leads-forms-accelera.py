@@ -16,8 +16,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-ARQUIVO_BRONZE = 'data/bronze/leads-forms-accelera/leads-forms-accelera.csv'
-ARQUIVO_SILVER = 'data/silver/leads-forms-accelera.parquet'
+ARQUIVO_BRONZE = 'gs://p95-accelera360/bronze/leads-forms-accelera/leads-forms-accelera.csv'
+ARQUIVO_SILVER = 'gs://p95-accelera360/silver/leads-forms-accelera.parquet'
 
 # Mapeamento das colunas conforme imagem fornecida
 colunas_map = {
@@ -72,8 +72,13 @@ colunas_map = {
 
 # Leitura do arquivo bronze
 try:
-    logger.info(f'Lendo arquivo bronze: {ARQUIVO_BRONZE}')
-    bronze_df = pd.read_csv(ARQUIVO_BRONZE)
+    logger.info(f'Lendo arquivo bronze (GCS): {ARQUIVO_BRONZE}')
+    bronze_df = pd.read_csv(
+        ARQUIVO_BRONZE,
+        storage_options={
+            'token': r'scr\config\lille-422512-a12a0a3c757b.json'
+        }
+    )
     logger.info('Arquivo bronze lido com sucesso.')
 except Exception as e:
     logger.error(f'Erro ao ler o arquivo bronze: {e}')
@@ -128,10 +133,13 @@ bronze_df = remover_quebras_linha(bronze_df)
 
 # Salvando no formato Parquet (silver)
 try:
-    # Criar diretório se não existir
-    os.makedirs(os.path.dirname(ARQUIVO_SILVER), exist_ok=True)
-
-    bronze_df.to_parquet(ARQUIVO_SILVER, index=False)
+    bronze_df.to_parquet(
+        ARQUIVO_SILVER,
+        index=False,
+        storage_options={
+            'token': r'scr\config\lille-422512-a12a0a3c757b.json'
+        }
+    )
     logger.info(f"Arquivo salvo em {ARQUIVO_SILVER} com colunas renomeadas.")
 except Exception as e:
     logger.error(f'Erro ao salvar o arquivo silver: {e}')

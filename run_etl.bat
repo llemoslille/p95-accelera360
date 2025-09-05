@@ -99,50 +99,17 @@ echo.
 
 REM Verificar se todos os arquivos foram criados
 echo ========================================
-echo    VERIFICACAO DOS ARQUIVOS
+echo    VERIFICACAO NO GCS
 echo ========================================
-echo Verificando arquivos gerados...
+echo Verificando artefatos no bucket p95-accelera360...
 
-if exist "data\bronze\leads-forms-accelera\leads-forms-accelera.csv" (
-    echo ✅ Bronze: leads-forms-accelera.csv
-) else (
-    echo ❌ Bronze: leads-forms-accelera.csv nao encontrado
-)
+python scr\core\gold\verify_gcs_outputs.py
+set VERIFY_EXIT_CODE=%errorlevel%
 
-if exist "data\silver\leads-forms-accelera.parquet" (
-    echo ✅ Silver: leads-forms-accelera.parquet
-) else (
-    echo ❌ Silver: leads-forms-accelera.parquet nao encontrado
-)
-
-if exist "data\gold\dim_cliente.parquet" (
-    echo ✅ Gold: dim_cliente.parquet
-) else (
-    echo ❌ Gold: dim_cliente.parquet nao encontrado
-)
-
-if exist "data\gold\dim_vendedores.parquet" (
-    echo ✅ Gold: dim_vendedores.parquet
-) else (
-    echo ❌ Gold: dim_vendedores.parquet nao encontrado
-)
-
-if exist "data\gold\dim_pipeline.parquet" (
-    echo ✅ Gold: dim_pipeline.parquet
-) else (
-    echo ❌ Gold: dim_pipeline.parquet nao encontrado
-)
-
-if exist "data\gold\dim_estagio.parquet" (
-    echo ✅ Gold: dim_estagio.parquet
-) else (
-    echo ❌ Gold: dim_estagio.parquet nao encontrado
-)
-
-if exist "data\gold\fato_clint_digital.parquet" (
-    echo ✅ Gold: fato_clint_digital.parquet
-) else (
-    echo ❌ Gold: fato_clint_digital.parquet nao encontrado
+if %VERIFY_EXIT_CODE% neq 0 (
+    echo ERRO: Falha na verificacao dos artefatos no GCS
+    echo [%date% %time%] ERRO: Verificacao GCS falhou >> "%LOG_FILE%"
+    goto :error
 )
 
 echo.
