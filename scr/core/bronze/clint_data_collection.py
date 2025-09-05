@@ -213,46 +213,25 @@ def fazer_upload_bucket(driver, nome_arquivo):
         print(
             f"📁 Preparando upload para: gs://{bucket_name}/{nome_arquivo_bucket}")
 
-        # Verificar arquivo CSV na pasta downloads
-        download_folder = os.path.join(os.path.dirname(
-            os.path.abspath(__file__)), "downloads")
+        # Verificar arquivo CSV na pasta Bronze padronizada
+        bronze_folder = r"C:\Repositorio\Python\p95-accelera360\data\bronze\leads-forms-accelera"
+        os.makedirs(bronze_folder, exist_ok=True)
+        csv_path = os.path.join(bronze_folder, "leads-forms-accelera.csv")
 
-        if not os.path.exists(download_folder):
-            os.makedirs(download_folder, exist_ok=True)
-
-        csv_files = [f for f in os.listdir(
-            download_folder) if f.endswith(".csv")]
-
-        if csv_files:
-            # Pegar arquivo mais recente
-            csv_files.sort(key=lambda x: os.path.getmtime(
-                os.path.join(download_folder, x)), reverse=True)
-            csv_path = os.path.join(download_folder, csv_files[0])
-
-            # Ler arquivo CSV
-            df = pd.read_csv(csv_path)
-            print(f"📊 DataFrame carregado com {len(df)} linhas")
-
-            # Converter para CSV em memória
-            csv_buffer = io.StringIO()
-            df.to_csv(csv_buffer, index=False)
-            csv_content = csv_buffer.getvalue()
-
-            # Fazer upload
+        if os.path.exists(csv_path):
+            # Fazer upload direto do arquivo final
             blob = bucket.blob(nome_arquivo_bucket)
-            blob.upload_from_string(csv_content, content_type='text/csv')
+            blob.upload_from_filename(csv_path, content_type='text/csv')
 
             print(
                 f"✅ Arquivo enviado para: gs://{bucket_name}/{nome_arquivo_bucket}")
-            print(f"📊 Tamanho: {len(csv_content)} bytes, Linhas: {len(df)}")
-
-            # Remover arquivo temporário
-            os.remove(csv_path)
-            print("🗑️ Arquivo temporário removido")
+            print(f"📁 Origem: {csv_path}")
 
             return True
         else:
-            print("❌ Nenhum arquivo CSV encontrado para upload")
+            print(
+                "❌ Arquivo final 'leads-forms-accelera.csv' não encontrado na pasta Bronze.")
+            print(f"📁 Pasta verificada: {bronze_folder}")
             return False
 
     except Exception as e:
@@ -670,6 +649,14 @@ def executar_coleta_completa(driver):
     """
     try:
         print("🚀 Iniciando coleta completa de dados...")
+
+        # Garantir que as pastas de destino existam mesmo se 'data' tiver sido apagada
+        try:
+            base_bronze = r"C:\Repositorio\Python\p95-accelera360\data\bronze\leads-forms-accelera"
+            os.makedirs(base_bronze, exist_ok=True)
+            print(f"📁 Pasta assegurada: {base_bronze}")
+        except Exception as e:
+            print(f"⚠️ Não foi possível criar pasta Bronze: {e}")
 
         # Importar após configurar o path (como no clint_login_plataforma.py)
         from variaveis import clint_urls

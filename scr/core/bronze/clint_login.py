@@ -44,7 +44,11 @@ def criar_driver_chrome():
             "download.default_directory": downloads_path,
             "download.prompt_for_download": False,
             "download.directory_upgrade": True,
-            "safebrowsing.enabled": True
+            "safebrowsing.enabled": True,
+            # Permitir múltiplos downloads automáticos
+            "profile.default_content_setting_values.automatic_downloads": 1,
+            # Reduz bloqueios de proteção de download (usar com cautela)
+            "safebrowsing.disable_download_protection": True
         })
 
         driver = webdriver.Chrome(options=chrome_options)
